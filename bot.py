@@ -5,7 +5,7 @@ import asyncio
 import requests
 
 from PIL import Image, ImageDraw, ImageFont
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ConversationHandler,
     ContextTypes, filters
@@ -54,6 +54,8 @@ def split_text_to_lines(text: str) -> tuple:
         line2 = " ".join(words[mid:]).upper()
 
         return line1, line2
+
+
 def generate_quest_image(quest_name: str) -> io.BytesIO:
     """Генерирует картинку и возвращает буфер для Telegram"""
 
@@ -117,7 +119,7 @@ def generate_quest_image(quest_name: str) -> io.BytesIO:
         (30.5, 30),
         "bsuirhostel.5",
         font=font_footer,
-        fill=(76, 107,125, 80),
+        fill=(76, 107, 125, 80),
         anchor="lt"
     )
 
@@ -159,12 +161,41 @@ def call_google_script(quest_name, count, req_count):  # Передача req_co
         raise Exception(f"HTTP {response.status_code}: {response.text}")
 
 
-# --- HANDLERS ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Привет! Введи название мероприятия:")
+# --- НОВЫЙ HANDLER ДЛЯ КОМАНДЫ /createForm ---
+async def create_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /createForm"""
+    await update.message.reply_text(
+        "🤖 Привет! Введи название мероприятия:",
+        reply_markup=ReplyKeyboardRemove()
+    )
     return QUEST_NAME
 
 
+# --- ОБНОВЛЕННЫЙ START HANDLER С КНОПКОЙ ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start с кнопкой"""
+    keyboard = [["📝 Создать форму"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    await update.message.reply_text(
+        "🤖 Привет! Я бот для создания форм регистрации на мероприятия.\n\n"
+        "Нажми кнопку ниже чтобы начать создание формы:",
+        reply_markup=reply_markup
+    )
+    return ConversationHandler.END
+
+
+# --- HANDLER ДЛЯ КНОПКИ "Создать форму" ---
+async def create_form_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатия на кнопку 'Создать форму'"""
+    await update.message.reply_text(
+        "🤖 Отлично! Введи название мероприятия:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return QUEST_NAME
+
+
+# --- ОСТАЛЬНЫЕ HANDLERS ---
 async def get_quest_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['quest_name'] = update.message.text.upper()
     await update.message.reply_text("🔢 Введи МАКСИМАЛЬНОЕ количество участников в команде:")
@@ -220,7 +251,8 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if result.get('status') == 'success':
                 text = (
                     f"✅ Автоматизация завершена!\n\n"
-                    f"📝 Форма: {result['formUrl']}\n"
+                    f"📝 Форма (для заполнения): {result['formUrl']}\n"
+                    f"📝 Форма (редактирование): {result['editFormUrl']}\n"
                     f"📊 Таблица: {result['sheetUrl']}\n\n"
                     f"ℹ️ Важно! Форма настроена так, что {req_count} первых участника ОБЯЗАТЕЛЬНЫ.\n"
                     f"Следующие шаги:\n"
@@ -244,7 +276,7 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отмена.")
+    await update.message.reply_text("Отмена.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 
@@ -252,9 +284,12 @@ def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     app = Application.builder().token(token).build()
 
-    # Обновлен список состояний
+    # ConversationHandler для создания формы
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+        entry_points=[
+            CommandHandler('createForm', create_form),
+            MessageHandler(filters.Regex('^📝 Создать форму$'), create_form_button)
+        ],
         states={
             QUEST_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_quest_name)],
             PARTICIPANTS_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_participants_count)],
@@ -263,7 +298,10 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
+    # Добавляем обработчики
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
+
     app.run_polling()
 
 

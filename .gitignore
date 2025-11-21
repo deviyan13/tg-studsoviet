@@ -1,2 +1,4 @@
 /.venv/
 /service_account.json
+/token.json
+/credentials.json

@@ -5,7 +5,7 @@ import asyncio
 import requests
 
 from PIL import Image, ImageDraw, ImageFont
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ConversationHandler,
     ContextTypes, filters
@@ -28,6 +28,26 @@ IMAGE_HEIGHT = 350
 BACKGROUND_COLOR = (16, 53, 71)  # Темный синий цвет
 TEXT_COLOR = (248, 241, 222)  # Белый текст
 ACCENT_COLOR = (253, 188, 58)  # Золотой/желтый цвет
+
+# 🔐 СИСТЕМА ДОСТУПА
+# Получаем список разрешенных пользователей из переменной окружения
+ALLOWED_USERS = os.environ.get('ALLOWED_USERS', '').split(',')
+ALLOWED_USERS = [int(user_id.strip()) for user_id in ALLOWED_USERS if user_id.strip()]
+ADMIN_USER_ID = int(os.environ.get('ADMIN_USER_ID', 0))  # Твой ID для административных функций
+
+
+def check_access(user_id: int) -> bool:
+    """Проверяет доступ пользователя к боту"""
+    return user_id in ALLOWED_USERS
+
+
+async def access_denied(update: Update) -> None:
+    """Сообщение об отказе в доступе"""
+    await update.message.reply_text(
+        "❌ Доступ запрещен.\n\n"
+        "Этот бот доступен только для авторизованных пользователей. "
+        "Обратитесь к администратору для получения доступа."
+    )
 
 
 def split_text_to_lines(text: str) -> tuple:
@@ -161,19 +181,54 @@ def call_google_script(quest_name, count, req_count):  # Передача req_co
         raise Exception(f"HTTP {response.status_code}: {response.text}")
 
 
-# --- НОВЫЙ HANDLER ДЛЯ КОМАНДЫ /createForm ---
-async def create_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /createForm"""
+# --- АДМИНИСТРАТИВНЫЕ КОМАНДЫ ---
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает список административных команд"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return
+
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Эта команда только для администратора.")
+        return
+
+    user_list = "\n".join([f"• {user_id}" for user_id in ALLOWED_USERS])
+
     await update.message.reply_text(
-        "🤖 Привет! Введи название мероприятия:",
-        reply_markup=ReplyKeyboardRemove()
+        f"🛠️ <b>Административные команды:</b>\n\n"
+        f"<b>Текущие пользователи:</b>\n{user_list}\n\n"
+        f"<b>Команды:</b>\n"
+        f"/users - Показать список пользователей\n"
+        f"/stats - Статистика использования",
+        parse_mode='HTML'
     )
-    return QUEST_NAME
 
 
-# --- ОБНОВЛЕННЫЙ START HANDLER С КНОПКОЙ ---
+async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает список разрешенных пользователей"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return
+
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Эта команда только для администратора.")
+        return
+
+    if not ALLOWED_USERS:
+        await update.message.reply_text("📝 Список пользователей пуст.")
+        return
+
+    user_list = "\n".join([f"• {user_id}" for user_id in ALLOWED_USERS])
+    await update.message.reply_text(f"📋 <b>Разрешенные пользователи:</b>\n\n{user_list}", parse_mode='HTML')
+
+
+# --- ОБНОВЛЕННЫЕ HANDLERS С ПРОВЕРКОЙ ДОСТУПА ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start с кнопкой"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return ConversationHandler.END
+
     keyboard = [["📝 Создать форму"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -185,9 +240,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- HANDLER ДЛЯ КНОПКИ "Создать форму" ---
+async def create_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /createForm"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "🤖 Привет! Введи название мероприятия:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return QUEST_NAME
+
+
 async def create_form_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик нажатия на кнопку 'Создать форму'"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return ConversationHandler.END
+
     await update.message.reply_text(
         "🤖 Отлично! Введи название мероприятия:",
         reply_markup=ReplyKeyboardRemove()
@@ -195,14 +266,23 @@ async def create_form_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return QUEST_NAME
 
 
-# --- ОСТАЛЬНЫЕ HANDLERS ---
 async def get_quest_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получает название квеста"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return ConversationHandler.END
+
     context.user_data['quest_name'] = update.message.text.upper()
     await update.message.reply_text("🔢 Введи МАКСИМАЛЬНОЕ количество участников в команде:")
     return PARTICIPANTS_COUNT
 
 
 async def get_participants_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получает количество участников"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return ConversationHandler.END
+
     try:
         count = int(update.message.text)
         if count <= 0:
@@ -220,6 +300,11 @@ async def get_participants_count(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Завершает создание формы"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return ConversationHandler.END
+
     try:
         req_count = int(update.message.text)
         max_count = context.user_data['count']
@@ -239,6 +324,18 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
             photo=img_io,
             caption="✅ Картинка готова! Сохрани ее и загрузи в форму вручную в Шапку."
         )
+
+        # with open("test_image.png", "wb") as f:
+        #     f.write(img_io.getvalue())
+        #
+        #     await update.message.reply_document(
+        #         document=InputFile(f),
+        #         caption="✅ Картинка готова! Сохрани ее и загрузи в форму вручную в Шапку.",
+        #         filename="shapka.png"
+        #     )
+
+
+
 
         await status_msg.edit_text("🚀 Отправляю задачу в Google (создание + связка)...")
 
@@ -276,12 +373,24 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return ConversationHandler.END
+
     await update.message.reply_text("Отмена.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
+
+    # Проверяем что есть хотя бы один разрешенный пользователь
+    if not ALLOWED_USERS:
+        logger.warning("⚠️  Список ALLOWED_USERS пуст! Бот не будет отвечать никому.")
+
     app = Application.builder().token(token).build()
 
     # ConversationHandler для создания формы
@@ -302,13 +411,15 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
 
+    # Административные команды
+    app.add_handler(CommandHandler("admin", admin_help))
+    app.add_handler(CommandHandler("users", show_users))
+
+    logger.info("Бот запущен с системой контроля доступа...")
+    logger.info(f"Разрешенные пользователи: {ALLOWED_USERS}")
+
     app.run_polling()
 
 
 if __name__ == '__main__':
     main()
-
-# if __name__ == "__main__":
-#     image = generate_quest_image('Форум "Добро нашим друзьям kfjlkjfds k"')
-#     with open("test_image.png", "wb") as f:
-#         f.write(image.getvalue())

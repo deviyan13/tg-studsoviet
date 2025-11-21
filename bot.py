@@ -5,7 +5,7 @@ import asyncio
 import requests
 
 from PIL import Image, ImageDraw, ImageFont
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ConversationHandler,
     ContextTypes, filters
@@ -35,9 +35,16 @@ ALLOWED_USERS = os.environ.get('ALLOWED_USERS', '').split(',')
 ALLOWED_USERS = [int(user_id.strip()) for user_id in ALLOWED_USERS if user_id.strip()]
 ADMIN_USER_ID = int(os.environ.get('ADMIN_USER_ID', 0))  # Твой ID для административных функций
 
+MAIN_MENU_KEYBOARD = ReplyKeyboardMarkup(
+    [["📝 Создать форму"]],
+    resize_keyboard=True,
+    is_persistent=True # Делаем клавиатуру постоянной
+)
+
 
 def check_access(user_id: int) -> bool:
     """Проверяет доступ пользователя к боту"""
+    print("user is admin")
     return user_id in ALLOWED_USERS
 
 
@@ -46,7 +53,7 @@ async def access_denied(update: Update) -> None:
     await update.message.reply_text(
         "❌ Доступ запрещен.\n\n"
         "Этот бот доступен только для авторизованных пользователей. "
-        "Обратитесь к администратору для получения доступа."
+        "Обратитесь к @deviyann для получения доступа."
     )
 
 
@@ -75,6 +82,43 @@ def split_text_to_lines(text: str) -> tuple:
 
         return line1, line2
 
+
+import re
+
+
+async def send_image_as_both_photo_and_file(update: Update, image_buffer: io.BytesIO, quest_name: str,
+                                            caption: str = ""):
+    """Отправляет картинку как фото и как файл (документ)"""
+
+    # Очищаем название для имени файла
+    safe_name = re.sub(r'[^\w\s-]', '', quest_name)
+    safe_name = re.sub(r'[-\s]+', '_', safe_name)
+    safe_name = safe_name.strip('-_')
+
+    # Если имя слишком длинное, обрезаем
+    if len(safe_name) > 50:
+        safe_name = safe_name[:50]
+
+    filename = f"{safe_name}.png"
+
+    # Сбрасываем буфер для повторного использования
+    image_buffer.seek(0)
+
+    # Отправляем как фото
+    await update.message.reply_photo(
+        photo=image_buffer,
+        caption=caption
+    )
+
+    # Снова сбрасываем буфер для отправки как файл
+    image_buffer.seek(0)
+
+    # Отправляем как документ (файл)
+    await update.message.reply_document(
+        document=image_buffer,
+        filename=filename,
+        caption="📎 А это тот же файл в формате PNG для скачивания"
+    )
 
 def generate_quest_image(quest_name: str) -> io.BytesIO:
     """Генерирует картинку и возвращает буфер для Telegram"""
@@ -200,7 +244,8 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Команды:</b>\n"
         f"/users - Показать список пользователей\n"
         f"/stats - Статистика использования",
-        parse_mode='HTML'
+        parse_mode='HTML',
+        reply_markup=MAIN_MENU_KEYBOARD
     )
 
 
@@ -215,27 +260,28 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not ALLOWED_USERS:
-        await update.message.reply_text("📝 Список пользователей пуст.")
+        await update.message.reply_text("📝 Список пользователей пуст.", reply_markup=MAIN_MENU_KEYBOARD)
         return
 
     user_list = "\n".join([f"• {user_id}" for user_id in ALLOWED_USERS])
-    await update.message.reply_text(f"📋 <b>Разрешенные пользователи:</b>\n\n{user_list}", parse_mode='HTML')
+    await update.message.reply_text(
+        f"📋 <b>Разрешенные пользователи:</b>\n\n{user_list}",
+        parse_mode='HTML',
+        reply_markup=MAIN_MENU_KEYBOARD
+    )
 
 
-# --- ОБНОВЛЕННЫЕ HANDLERS С ПРОВЕРКОЙ ДОСТУПА ---
+# --- ОБНОВЛЕННЫЕ HANDLERS С ПРОВЕРКОЙ ДОСТУПА И МЕНЮ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start с кнопкой"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
 
-    keyboard = [["📝 Создать форму"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
     await update.message.reply_text(
         "🤖 Привет! Я бот для создания форм регистрации на мероприятия.\n\n"
-        "Нажми кнопку ниже чтобы начать создание формы:",
-        reply_markup=reply_markup
+        "Используй кнопку ниже чтобы начать создание формы:",
+        reply_markup=MAIN_MENU_KEYBOARD
     )
     return ConversationHandler.END
 
@@ -248,7 +294,7 @@ async def create_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🤖 Привет! Введи название мероприятия:",
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=ReplyKeyboardRemove()  # Убираем меню на время диалога
     )
     return QUEST_NAME
 
@@ -261,7 +307,7 @@ async def create_form_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     await update.message.reply_text(
         "🤖 Отлично! Введи название мероприятия:",
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=ReplyKeyboardRemove()  # Убираем меню на время диалога
     )
     return QUEST_NAME
 
@@ -320,22 +366,16 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
         status_msg = await update.message.reply_text("🎨 Генерирую картинку...")
         img_io = generate_quest_image(quest_name)
 
-        await update.message.reply_photo(
-            photo=img_io,
+        # await update.message.reply_photo(
+        #     photo=img_io,
+        #     caption="✅ Картинка готова! Сохрани ее и загрузи в форму вручную в Шапку."
+        # )
+        await send_image_as_both_photo_and_file(
+            update=update,
+            image_buffer=img_io,
+            quest_name=quest_name,
             caption="✅ Картинка готова! Сохрани ее и загрузи в форму вручную в Шапку."
         )
-
-        # with open("test_image.png", "wb") as f:
-        #     f.write(img_io.getvalue())
-        #
-        #     await update.message.reply_document(
-        #         document=InputFile(f),
-        #         caption="✅ Картинка готова! Сохрани ее и загрузи в форму вручную в Шапку.",
-        #         filename="shapka.png"
-        #     )
-
-
-
 
         await status_msg.edit_text("🚀 Отправляю задачу в Google (создание + связка)...")
 
@@ -356,14 +396,29 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"1. Открой форму и установи шрифт Montserrat.\n"
                     f"2. Загрузи картинку, которую я прислал, в Шапку темы."
                 )
-                await status_msg.edit_text(text,
-                                           disable_web_page_preview=True)
+                await status_msg.edit_text(text, disable_web_page_preview=True)
+
+                # Возвращаем меню после успешного создания
+                await update.message.reply_text(
+                    "🎉 Форма готова! Хочешь создать еще одну?",
+                    reply_markup=MAIN_MENU_KEYBOARD
+                )
             else:
                 await status_msg.edit_text(f"⚠️ Ошибка скрипта: {result.get('message')}")
+                # Возвращаем меню даже при ошибке
+                await update.message.reply_text(
+                    "Попробуй еще раз:",
+                    reply_markup=MAIN_MENU_KEYBOARD
+                )
 
         except Exception as e:
             logger.error(f"Error: {e}")
             await status_msg.edit_text(f"❌ Ошибка соединения.")
+            # Возвращаем меню при ошибке соединения
+            await update.message.reply_text(
+                "Произошла ошибка. Попробуй еще раз:",
+                reply_markup=MAIN_MENU_KEYBOARD
+            )
 
         return ConversationHandler.END
 
@@ -373,13 +428,28 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена"""
+    """Отмена с возвратом в главное меню"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
 
-    await update.message.reply_text("Отмена.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text(
+        "Отмена. Возвращаю в главное меню.",
+        reply_markup=MAIN_MENU_KEYBOARD
+    )
     return ConversationHandler.END
+
+
+async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик неизвестных сообщений"""
+    if not check_access(update.effective_user.id):
+        await access_denied(update)
+        return
+
+    await update.message.reply_text(
+        "🤔 Не понял твоего сообщения. Используй кнопку 'Создать форму' для начала работы.",
+        reply_markup=MAIN_MENU_KEYBOARD
+    )
 
 
 def main():
@@ -414,6 +484,9 @@ def main():
     # Административные команды
     app.add_handler(CommandHandler("admin", admin_help))
     app.add_handler(CommandHandler("users", show_users))
+
+    # Обработчик неизвестных сообщений (должен быть последним)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_message))
 
     logger.info("Бот запущен с системой контроля доступа...")
     logger.info(f"Разрешенные пользователи: {ALLOWED_USERS}")

@@ -452,18 +452,25 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
+import os
+
+
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    # URL вашего приложения на Render (вы получите его после создания сервиса)
+    # Например: https://my-cool-bot.onrender.com
+    webhook_url = os.environ.get("WEBHOOK_URL")
+
+    # Порт, который Render выдает автоматически.
+    # Если локально — используем 8000
+    port = int(os.environ.get("PORT", 8000))
+
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
 
-    # Проверяем что есть хотя бы один разрешенный пользователь
-    if not ALLOWED_USERS:
-        logger.warning("⚠️  Список ALLOWED_USERS пуст! Бот не будет отвечать никому.")
-
     app = Application.builder().token(token).build()
 
-    # ConversationHandler для создания формы
+    # --- РЕГИСТРАЦИЯ ВАШИХ HANDLERS (ОСТАЕТСЯ КАК БЫЛО) ---
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler('createForm', create_form),
@@ -477,21 +484,26 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
-    # Добавляем обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
-
-    # Административные команды
     app.add_handler(CommandHandler("admin", admin_help))
     app.add_handler(CommandHandler("users", show_users))
-
-    # Обработчик неизвестных сообщений (должен быть последним)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_message))
 
-    logger.info("Бот запущен с системой контроля доступа...")
-    logger.info(f"Разрешенные пользователи: {ALLOWED_USERS}")
-
-    app.run_polling()
+    # --- ЛОГИКА ЗАПУСКА ---
+    if webhook_url:
+        # Запуск на Render (Webhooks)
+        logger.info(f"Запуск Webhook: {webhook_url} на порту {port}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=token,
+            webhook_url=f"{webhook_url}/{token}"
+        )
+    else:
+        # Запуск локально (Polling)
+        logger.info("Запуск Polling (локально)...")
+        app.run_polling()
 
 
 if __name__ == '__main__':

@@ -2,3 +2,5 @@
 /service_account.json
 /token.json
 /credentials.json
+/.env
+*.png

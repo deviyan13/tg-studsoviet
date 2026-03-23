@@ -457,8 +457,6 @@ import os
 
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    # URL вашего приложения на Render (вы получите его после создания сервиса)
-    # Например: https://my-cool-bot.onrender.com
     webhook_url = os.environ.get("WEBHOOK_URL")
 
     # Порт, который Render выдает автоматически.

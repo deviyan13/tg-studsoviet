@@ -20,58 +20,49 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Добавлен новый этап REQUIRED_COUNT
+
 QUEST_NAME, PARTICIPANTS_COUNT, REQUIRED_COUNT = range(3)
-# Параметры изображения
+
 IMAGE_WIDTH = 1400
 IMAGE_HEIGHT = 350
 BACKGROUND_COLOR = (16, 53, 71)  # Темный синий цвет
 TEXT_COLOR = (248, 241, 222)  # Белый текст
 ACCENT_COLOR = (253, 188, 58)  # Золотой/желтый цвет
 
-# 🔐 СИСТЕМА ДОСТУПА
-# Получаем список разрешенных пользователей из переменной окружения
+
 ALLOWED_USERS = os.environ.get('ALLOWED_USERS', '').split(',')
 ALLOWED_USERS = [int(user_id.strip()) for user_id in ALLOWED_USERS if user_id.strip()]
-ADMIN_USER_ID = int(os.environ.get('ADMIN_USER_ID', 0))  # Твой ID для административных функций
+ADMIN_USER_ID = int(os.environ.get('ADMIN_USER_ID', 0))  # ID для административных функций
 
 MAIN_MENU_KEYBOARD = ReplyKeyboardMarkup(
     [["📝 Создать форму"]],
     resize_keyboard=True,
-    is_persistent=True # Делаем клавиатуру постоянной
+    is_persistent=True
 )
 
 
 def check_access(user_id: int) -> bool:
-    """Проверяет доступ пользователя к боту"""
     print("user is admin")
     return user_id in ALLOWED_USERS
 
 
 async def access_denied(update: Update) -> None:
-    """Сообщение об отказе в доступе"""
     await update.message.reply_text(
-        "❌ Доступ запрещен.\n\n"
-        "Этот бот доступен только для авторизованных пользователей. "
+        "Доступ запрещен.\n\n"
         "Обратитесь к @deviyann для получения доступа."
     )
 
 
 def split_text_to_lines(text: str) -> tuple:
-    """Разбивает текст по кавычкам: первая строка - до кавычек, вторая - в кавычках"""
-
     text = text.replace('"', '«', 1)
     text = text.replace('"', '»', 1)
 
-    # Ищем кавычки
     if '«' in text and '»' in text:
-        # Разбиваем по кавычкам
         before_quotes = text[:text.index('«')].strip().upper()
         quoted_part = text[text.index('«'):text.index('»') + 1].upper()
 
         return before_quotes, quoted_part
     else:
-        # Если кавычек нет, просто разбиваем на две части
         words = text.split()
         if len(words) <= 1:
             return "КВЕСТ", text.upper()
@@ -88,32 +79,25 @@ import re
 
 async def send_image_as_both_photo_and_file(update: Update, image_buffer: io.BytesIO, quest_name: str,
                                             caption: str = ""):
-    """Отправляет картинку как фото и как файл (документ)"""
-
-    # Очищаем название для имени файла
     safe_name = re.sub(r'[^\w\s-]', '', quest_name)
     safe_name = re.sub(r'[-\s]+', '_', safe_name)
     safe_name = safe_name.strip('-_')
 
-    # Если имя слишком длинное, обрезаем
     if len(safe_name) > 50:
         safe_name = safe_name[:50]
 
     filename = f"{safe_name}.png"
 
-    # Сбрасываем буфер для повторного использования
     image_buffer.seek(0)
 
-    # Отправляем как фото
     await update.message.reply_photo(
         photo=image_buffer,
         caption=caption
     )
 
-    # Снова сбрасываем буфер для отправки как файл
+
     image_buffer.seek(0)
 
-    # Отправляем как документ (файл)
     await update.message.reply_document(
         document=image_buffer,
         filename=filename,
@@ -121,24 +105,19 @@ async def send_image_as_both_photo_and_file(update: Update, image_buffer: io.Byt
     )
 
 def generate_quest_image(quest_name: str) -> io.BytesIO:
-    """Генерирует картинку и возвращает буфер для Telegram"""
-
     img = Image.new('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT), BACKGROUND_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # Загружаем шрифты Montserrat
     try:
         font_subtitle = ImageFont.truetype("Montserrat-Black.ttf", 58.3)
         font_main = ImageFont.truetype("Montserrat-Black.ttf", 95)
         font_footer = ImageFont.truetype("Montserrat-Bold.ttf", 37.23)
     except:
-        # Если Montserrat не найден, используем Arial
         print("ahhh")
         font_subtitle = ImageFont.truetype("arialbd.ttf", 50)
         font_main = ImageFont.truetype("arialbd.ttf", 95)
         font_footer = ImageFont.truetype("arial.ttf", 28)
 
-    # Подзаголовок "РЕГИСТРАЦИЯ НА"
     draw.text(
         (IMAGE_WIDTH / 2, 25),
         "РЕГИСТРАЦИЯ",
@@ -156,7 +135,6 @@ def generate_quest_image(quest_name: str) -> io.BytesIO:
         anchor="mt"
     )
 
-    # Основное название - с адаптивным размером шрифта
     curr_size = 95
     q_font = ImageFont.truetype("Montserrat-Black.ttf", 95)
 
@@ -178,7 +156,7 @@ def generate_quest_image(quest_name: str) -> io.BytesIO:
         anchor="mt"
     )
 
-    # Подпись внизу
+    # подпись внизу
     draw.text(
         (30.5, 30),
         "bsuirhostel.5",
@@ -195,16 +173,13 @@ def generate_quest_image(quest_name: str) -> io.BytesIO:
         anchor="lt"
     )
 
-    # Сохраняем в буфер
     img_io = io.BytesIO()
     img.save(img_io, format='PNG')
     img_io.seek(0)
     return img_io
 
 
-# --- ЗАПРОС К СКРИПТУ ---
-def call_google_script(quest_name, count, req_count):  # Передача req_count
-    """Отправляем данные формы и req_count"""
+def call_google_script(quest_name, count, req_count):
     script_url = os.environ.get('GOOGLE_SCRIPT_URL')
     folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
 
@@ -213,7 +188,7 @@ def call_google_script(quest_name, count, req_count):  # Передача req_co
     payload = {
         "questName": quest_name,
         "count": count,
-        "required_count": req_count,  # Отправляем минимальное количество
+        "required_count": req_count,
         "folderId": folder_id
     }
 
@@ -225,15 +200,13 @@ def call_google_script(quest_name, count, req_count):  # Передача req_co
         raise Exception(f"HTTP {response.status_code}: {response.text}")
 
 
-# --- АДМИНИСТРАТИВНЫЕ КОМАНДЫ ---
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает список административных команд"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return
 
     if update.effective_user.id != ADMIN_USER_ID:
-        await update.message.reply_text("❌ Эта команда только для администратора.")
+        await update.message.reply_text("Эта команда только для администратора.")
         return
 
     user_list = "\n".join([f"• {user_id}" for user_id in ALLOWED_USERS])
@@ -250,17 +223,16 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает список разрешенных пользователей"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return
 
     if update.effective_user.id != ADMIN_USER_ID:
-        await update.message.reply_text("❌ Эта команда только для администратора.")
+        await update.message.reply_text("Эта команда только для администратора.")
         return
 
     if not ALLOWED_USERS:
-        await update.message.reply_text("📝 Список пользователей пуст.", reply_markup=MAIN_MENU_KEYBOARD)
+        await update.message.reply_text("Список пользователей пуст.", reply_markup=MAIN_MENU_KEYBOARD)
         return
 
     user_list = "\n".join([f"• {user_id}" for user_id in ALLOWED_USERS])
@@ -271,15 +243,13 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# --- ОБНОВЛЕННЫЕ HANDLERS С ПРОВЕРКОЙ ДОСТУПА И МЕНЮ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start с кнопкой"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "🤖 Привет! Я бот для создания форм регистрации на мероприятия.\n\n"
+        "Привет! Я бот для создания форм регистрации на мероприятия.\n\n"
         "Используй кнопку ниже чтобы начать создание формы:",
         reply_markup=MAIN_MENU_KEYBOARD
     )
@@ -287,44 +257,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def create_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /createForm"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "🤖 Привет! Введи название мероприятия:",
-        reply_markup=ReplyKeyboardRemove()  # Убираем меню на время диалога
+        "Привет! Введи название мероприятия:",
+        reply_markup=ReplyKeyboardRemove()
     )
     return QUEST_NAME
 
 
 async def create_form_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатия на кнопку 'Создать форму'"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "🤖 Отлично! Введи название мероприятия:",
-        reply_markup=ReplyKeyboardRemove()  # Убираем меню на время диалога
+        "Отлично! Введи название мероприятия:",
+        reply_markup=ReplyKeyboardRemove() 
     )
     return QUEST_NAME
 
 
 async def get_quest_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получает название квеста"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
 
     context.user_data['quest_name'] = update.message.text.upper()
-    await update.message.reply_text("🔢 Введи МАКСИМАЛЬНОЕ количество участников в команде:")
+    await update.message.reply_text("Введи МАКСИМАЛЬНОЕ количество участников в команде:")
     return PARTICIPANTS_COUNT
 
 
 async def get_participants_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получает количество участников"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
@@ -337,7 +303,7 @@ async def get_participants_count(update: Update, context: ContextTypes.DEFAULT_T
 
         context.user_data['count'] = count
         await update.message.reply_text(
-            f"📝 Теперь введи МИНИМАЛЬНОЕ количество участников в команде (должно быть не больше {count}):")
+            f"Теперь введи МИНИМАЛЬНОЕ количество участников в команде (должно быть не больше {count}):")
         return REQUIRED_COUNT
 
     except ValueError:
@@ -346,7 +312,6 @@ async def get_participants_count(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Завершает создание формы"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
@@ -359,17 +324,12 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(f"Минимальное количество должно быть числом от 1 до {max_count}.")
             return REQUIRED_COUNT
 
-        # Собираем все данные
         quest_name = context.user_data['quest_name']
 
-        # 1. Генерируем картинку и отправляем в чат
         status_msg = await update.message.reply_text("🎨 Генерирую картинку...")
         img_io = generate_quest_image(quest_name)
 
-        # await update.message.reply_photo(
-        #     photo=img_io,
-        #     caption="✅ Картинка готова! Сохрани ее и загрузи в форму вручную в Шапку."
-        # )
+
         await send_image_as_both_photo_and_file(
             update=update,
             image_buffer=img_io,
@@ -379,33 +339,29 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         await status_msg.edit_text("🚀 Отправляю задачу в Google (создание + связка)...")
 
-        # 2. Запускаем скрипт
         loop = asyncio.get_running_loop()
         try:
-            # Передаем обе переменные с количеством
             result = await loop.run_in_executor(None, call_google_script, quest_name, max_count, req_count)
 
             if result.get('status') == 'success':
                 text = (
                     f"✅ Автоматизация завершена!\n\n"
-                    f"📝 Форма (для заполнения): {result['formUrl']}\n"
-                    f"📝 Форма (редактирование): {result['editFormUrl']}\n"
-                    f"📊 Таблица: {result['sheetUrl']}\n\n"
-                    f"ℹ️ Важно! Форма настроена так, что {req_count} первых участника ОБЯЗАТЕЛЬНЫ.\n"
+                    f"Форма (для заполнения): {result['formUrl']}\n"
+                    f"Форма (редактирование): {result['editFormUrl']}\n"
+                    f"Таблица: {result['sheetUrl']}\n\n"
+                    f"Важно! Форма настроена так, что {req_count} первых участника ОБЯЗАТЕЛЬНЫ.\n"
                     f"Следующие шаги:\n"
                     f"1. Открой форму и установи шрифт Montserrat.\n"
                     f"2. Загрузи картинку, которую я прислал, в Шапку темы."
                 )
                 await status_msg.edit_text(text, disable_web_page_preview=True)
 
-                # Возвращаем меню после успешного создания
                 await update.message.reply_text(
                     "🎉 Форма готова! Хочешь создать еще одну?",
                     reply_markup=MAIN_MENU_KEYBOARD
                 )
             else:
                 await status_msg.edit_text(f"⚠️ Ошибка скрипта: {result.get('message')}")
-                # Возвращаем меню даже при ошибке
                 await update.message.reply_text(
                     "Попробуй еще раз:",
                     reply_markup=MAIN_MENU_KEYBOARD
@@ -414,7 +370,7 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             logger.error(f"Error: {e}")
             await status_msg.edit_text(f"❌ Ошибка соединения.")
-            # Возвращаем меню при ошибке соединения
+
             await update.message.reply_text(
                 "Произошла ошибка. Попробуй еще раз:",
                 reply_markup=MAIN_MENU_KEYBOARD
@@ -428,7 +384,6 @@ async def get_required_count(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена с возвратом в главное меню"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return ConversationHandler.END
@@ -441,7 +396,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик неизвестных сообщений"""
     if not check_access(update.effective_user.id):
         await access_denied(update)
         return
@@ -459,8 +413,6 @@ def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     webhook_url = os.environ.get("WEBHOOK_URL")
 
-    # Порт, который Render выдает автоматически.
-    # Если локально — используем 8000
     port = int(os.environ.get("PORT", 8000))
 
     if not token:
@@ -468,7 +420,6 @@ def main():
 
     app = Application.builder().token(token).build()
 
-    # --- РЕГИСТРАЦИЯ ВАШИХ HANDLERS (ОСТАЕТСЯ КАК БЫЛО) ---
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler('createForm', create_form),
@@ -488,9 +439,8 @@ def main():
     app.add_handler(CommandHandler("users", show_users))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_message))
 
-    # --- ЛОГИКА ЗАПУСКА ---
+
     if webhook_url:
-        # Запуск на Render (Webhooks)
         logger.info(f"Запуск Webhook: {webhook_url} на порту {port}")
         app.run_webhook(
             listen="0.0.0.0",
@@ -499,7 +449,6 @@ def main():
             webhook_url=f"{webhook_url}/{token}"
         )
     else:
-        # Запуск локально (Polling)
         logger.info("Запуск Polling (локально)...")
         app.run_polling()
 
